@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js",
-    "build": "prisma generate && prisma migrate deploy",
+    "start": "prisma migrate deploy && node src/server.js",
+    "build": "prisma generate",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
