@@ -1,0 +1,547 @@
+// Mamacita Database Schema
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// DOMAIN 1: USER DOMAIN
+// ============================================================================
+
+enum UserRole {
+  MOTHER
+  COLLABORATOR
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(MOTHER)
+  isVerified   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations (one-to-one based on role)
+  motherProfile       MotherProfile?
+  collaboratorProfile CollaboratorProfile?
+  adminProfile        AdminProfile?
+
+  @@map("users")
+}
+
+model MotherProfile {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  fullName         String
+  avatar           String?
+  bio              String?
+  phone            String?
+  location         String?
+  onboardingDone   Boolean  @default(false)
+  isFirstPregnancy Boolean?
+  interests        String[] // Array: ["parto", "amamentacao", "yoga"]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pregnancy Pregnancy?
+
+  // Community relations
+  createdGroups Group[]       @relation("GroupCreator")
+  groupMembers  GroupMember[]
+  posts         Post[]
+  comments      Comment[]
+  reactions     Reaction[]
+  reports       Report[]
+
+  // Learning relations
+  enrollments   Enrollment[]
+  watchHistory  WatchHistory[]
+  classReviews  ClassReview[]
+
+  // Events relations
+  eventRegistrations EventRegistration[]
+
+  // Shared relations
+  notifications Notification[]
+  savedContent  SavedContent[]
+
+  @@map("mother_profiles")
+}
+
+model CollaboratorProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  fullName    String
+  avatar      String?
+  bio         String?
+  phone       String?
+  profession  String // "Doula", "Nutricionista", "Instrutor de Yoga"
+  specialties String[] // ["parto humanizado", "amamentação"]
+  isVerified  Boolean  @default(false) // Admin verification
+  credentials String? // JSON or text with certifications
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classes Class[]
+  events  Event[]
+
+  @@map("collaborator_profiles")
+}
+
+model AdminProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  fullName  String
+  avatar    String?
+  role      String   @default("admin") // "super_admin", "moderator", etc.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_profiles")
+}
+
+// ============================================================================
+// DOMAIN 2: PREGNANCY DOMAIN
+// ============================================================================
+
+enum PregnancyStatus {
+  ACTIVE
+  COMPLETED
+  LOST
+}
+
+model Pregnancy {
+  id              String          @id @default(uuid())
+  motherProfileId String          @unique
+  dueDate         DateTime
+  currentWeek     Int // Calculated from dueDate
+  status          PregnancyStatus @default(ACTIVE)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  motherProfile  MotherProfile    @relation(fields: [motherProfileId], references: [id], onDelete: Cascade)
+  symptomLogs    SymptomLog[]
+  checklistItems ChecklistItem[]
+
+  @@map("pregnancies")
+}
+
+model SymptomLog {
+  id          String   @id @default(uuid())
+  pregnancyId String
+  week        Int
+  symptoms    String[] // ["enjoo", "cansaço", "dor nas costas"]
+  mood        String? // "feliz", "ansiosa", "cansada"
+  notes       String?
+  loggedAt    DateTime @default(now())
+
+  // Relations
+  pregnancy Pregnancy @relation(fields: [pregnancyId], references: [id], onDelete: Cascade)
+
+  @@map("symptom_logs")
+}
+
+model WeeklyContent {
+  id              String   @id @default(uuid())
+  week            Int      @unique // 1 to 40
+  babySize        String // "Seu bebê tem o tamanho de uma laranja"
+  babySizeImage   String? // Cloudinary URL
+  babyDevelopment String   @db.Text // Rich text (HTML from Strapi)
+  motherBody      String   @db.Text // Rich text
+  tips            String   @db.Text // Rich text
+  checklist       Json // ["Agendar ultrassom", "Comprar vitaminas"]
+  publishedAt     DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("weekly_content")
+}
+
+model ChecklistItem {
+  id          String    @id @default(uuid())
+  pregnancyId String
+  week        Int
+  content     String
+  isTemplate  Boolean   @default(false) // true if from Strapi, false if custom
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  // Relations
+  pregnancy Pregnancy @relation(fields: [pregnancyId], references: [id], onDelete: Cascade)
+
+  @@map("checklist_items")
+}
+
+// ============================================================================
+// DOMAIN 3: COMMUNITY DOMAIN
+// ============================================================================
+
+enum MemberRole {
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+model Group {
+  id          String    @id @default(uuid())
+  name        String
+  description String?   @db.Text
+  coverImage  String? // Cloudinary URL
+  isPublic    Boolean   @default(true)
+  category    String? // "Primeira Viagem", "Gêmeos", "Pós-parto"
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime? // Soft delete
+
+  // Relations
+  creator MotherProfile @relation("GroupCreator", fields: [createdById], references: [id])
+  members GroupMember[]
+  posts   Post[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id       String     @id @default(uuid())
+  groupId  String
+  userId   String // MotherProfile ID
+  role     MemberRole @default(MEMBER)
+  joinedAt DateTime   @default(now())
+
+  // Relations
+  group Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  MotherProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId]) // Can't join same group twice
+  @@map("group_members")
+}
+
+enum ReactionType {
+  HEART
+  SUPPORT
+  CELEBRATE
+}
+
+model Post {
+  id        String    @id @default(uuid())
+  groupId   String? // Nullable: post can be in group or general feed
+  authorId  String // MotherProfile ID
+  content   String    @db.Text
+  images    String[] // Array of Cloudinary URLs
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete
+
+  // Relations
+  group     Group?     @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  author    MotherProfile @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments  Comment[]
+  reactions Reaction[]
+  reports   Report[]
+
+  @@map("posts")
+}
+
+model Comment {
+  id        String    @id @default(uuid())
+  postId    String
+  authorId  String // MotherProfile ID
+  content   String    @db.Text
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete
+
+  // Relations
+  post   Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author MotherProfile @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+model Reaction {
+  id        String       @id @default(uuid())
+  postId    String
+  userId    String // MotherProfile ID
+  type      ReactionType
+  createdAt DateTime     @default(now())
+
+  // Relations
+  post Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user MotherProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId]) // One reaction per user per post
+  @@map("reactions")
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+model Report {
+  id        String       @id @default(uuid())
+  postId    String
+  userId    String // MotherProfile ID (reporter)
+  reason    String // "spam", "inappropriate", "harassment"
+  details   String?      @db.Text
+  status    ReportStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+
+  // Relations
+  post Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user MotherProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("reports")
+}
+
+// ============================================================================
+// DOMAIN 4: LEARNING DOMAIN
+// ============================================================================
+
+model Class {
+  id           String    @id @default(uuid())
+  title        String
+  description  String    @db.Text
+  thumbnail    String? // Cloudinary URL
+  category     String // "Yoga", "Nutrição", "Parto"
+  difficulty   String?   @default("Iniciante") // "Iniciante", "Intermediário", "Avançado"
+  instructorId String
+  isFree       Boolean   @default(true)
+  price        Decimal?  @default(0) @db.Decimal(10, 2) // For Phase 2
+  isPublished  Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Calculated fields (updated via triggers or app logic)
+  averageRating Decimal? @db.Decimal(2, 1)
+  reviewCount   Int      @default(0)
+
+  // Relations
+  instructor  CollaboratorProfile @relation(fields: [instructorId], references: [id])
+  videos      Video[]
+  enrollments Enrollment[]
+  reviews     ClassReview[]
+
+  @@map("classes")
+}
+
+model Video {
+  id           String   @id @default(uuid())
+  classId      String
+  title        String
+  description  String?  @db.Text
+  videoUrl     String // Cloudinary or external (Vimeo/YouTube)
+  thumbnailUrl String?
+  duration     Int // In seconds
+  order        Int // Order within the class
+  isPreview    Boolean  @default(false) // Free preview before enrollment
+  resources    Json? // Downloadable PDFs, links
+  createdAt    DateTime @default(now())
+
+  // Relations
+  class        Class          @relation(fields: [classId], references: [id], onDelete: Cascade)
+  watchHistory WatchHistory[]
+
+  @@map("videos")
+}
+
+model Enrollment {
+  id          String    @id @default(uuid())
+  classId     String
+  userId      String // MotherProfile ID
+  progress    Int       @default(0) // Percentage 0-100
+  enrolledAt  DateTime  @default(now())
+  completedAt DateTime?
+
+  // Relations
+  class Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user  MotherProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, userId]) // Can't enroll twice
+  @@map("enrollments")
+}
+
+model WatchHistory {
+  id         String   @id @default(uuid())
+  videoId    String
+  userId     String // MotherProfile ID
+  progress   Int      @default(0) // Seconds watched
+  watchedAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  video Video         @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  user  MotherProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, userId])
+  @@map("watch_history")
+}
+
+model ClassReview {
+  id        String   @id @default(uuid())
+  classId   String
+  userId    String // MotherProfile ID
+  rating    Int // 1-5 stars
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  class Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user  MotherProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, userId]) // One review per user per class
+  @@map("class_reviews")
+}
+
+// ============================================================================
+// DOMAIN 5: EVENTS DOMAIN
+// ============================================================================
+
+enum EventType {
+  ONLINE
+  IN_PERSON
+  HYBRID
+}
+
+model Event {
+  id           String    @id @default(uuid())
+  title        String
+  description  String    @db.Text
+  coverImage   String?
+  type         EventType
+  category     String // "Workshop", "Webinar", "Meetup"
+  startDate    DateTime
+  endDate      DateTime
+  location     String? // Address (if IN_PERSON)
+  city         String?
+  state        String?
+  meetingLink  String? // Zoom/Meet link (if ONLINE/HYBRID)
+  meetingPassword String?
+  capacity     Int? // null = unlimited
+  waitlistEnabled Boolean @default(false)
+  organizerId  String
+  isFree       Boolean   @default(true)
+  price        Decimal?  @default(0) @db.Decimal(10, 2) // For Phase 2
+  isPublished  Boolean   @default(false)
+  isFeatured   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  organizer     CollaboratorProfile @relation(fields: [organizerId], references: [id])
+  registrations EventRegistration[]
+
+  @@map("events")
+}
+
+enum RegistrationStatus {
+  REGISTERED
+  CANCELLED
+  ATTENDED
+  WAITLIST
+  NO_SHOW
+}
+
+model EventRegistration {
+  id           String             @id @default(uuid())
+  eventId      String
+  userId       String // MotherProfile ID
+  status       RegistrationStatus @default(REGISTERED)
+  registeredAt DateTime           @default(now())
+  cancelledAt  DateTime?
+  attendedAt   DateTime?
+
+  // Relations
+  event Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  MotherProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId]) // Can't register twice
+  @@map("event_registrations")
+}
+
+// ============================================================================
+// SHARED / CROSS-CUTTING CONCERNS
+// ============================================================================
+
+enum NotificationType {
+  WEEK_MILESTONE // "Você está na semana 25!"
+  EVENT_REMINDER // "Evento amanhã"
+  POST_COMMENT // "Alguém comentou no seu post"
+  POST_REACTION // "Curtidas no seu post"
+  GROUP_INVITE // "Você foi convidada para um grupo"
+  CLASS_COMPLETION // "Parabéns! Aula concluída"
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String // MotherProfile ID
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  data      Json? // Extra data (eventId, postId, etc.)
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  // Relations
+  user MotherProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+enum ContentType {
+  POST
+  VIDEO
+  CLASS
+  EVENT
+}
+
+model SavedContent {
+  id        String      @id @default(uuid())
+  userId    String // MotherProfile ID
+  type      ContentType
+  contentId String // postId, videoId, classId, eventId
+  savedAt   DateTime    @default(now())
+
+  // Relations
+  user MotherProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, contentId]) // Can't save same item twice
+  @@map("saved_content")
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+model Media {
+  id         String    @id @default(uuid())
+  userId     String? // Can be null for system uploads
+  url        String // Cloudinary URL
+  publicId   String // Cloudinary public_id
+  type       MediaType
+  uploadedAt DateTime  @default(now())
+
+  @@map("media")
+}
