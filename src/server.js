@@ -32,13 +32,7 @@ const API_VERSION = process.env.API_VERSION || 'v1';
 // ============================================================================
 
 // CORS configuration - Allow all origins for development
-const corsOptions = {
-  origin: '*',
-  credentials: false,
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
+app.use(cors());
 
 // Body parsers
 app.use(express.json({ limit: '10mb' }));
