@@ -31,10 +31,10 @@ const API_VERSION = process.env.API_VERSION || 'v1';
 // MIDDLEWARE
 // ============================================================================
 
-// CORS configuration
+// CORS configuration - Allow all origins for development
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:8081', 'http://localhost:3001'],
-  credentials: true,
+  origin: '*',
+  credentials: false,
   optionsSuccessStatus: 200
 };
 
