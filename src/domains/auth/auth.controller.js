@@ -121,10 +121,12 @@ export const register = async (req, res) => {
     });
   } catch (error) {
     console.error('Register error:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Erro ao criar usuário',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: error.message,
+      details: error.stack
     });
   }
 };
