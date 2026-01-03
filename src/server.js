@@ -62,6 +62,25 @@ app.get('/health', (req, res) => {
   });
 });
 
+// One-time migration endpoint (REMOVE AFTER SETUP)
+app.post('/setup-database', async (req, res) => {
+  try {
+    const { pushSchema } = await import('./utils/migrate.js');
+    const result = await pushSchema();
+    res.status(200).json({
+      success: result.success,
+      message: result.success ? 'Database schema pushed successfully!' : 'Failed to push schema',
+      output: result.output || result.error
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error setting up database',
+      error: error.message
+    });
+  }
+});
+
 // ============================================================================
 // API ROUTES
 // ============================================================================
